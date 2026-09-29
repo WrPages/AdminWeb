@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panel Zenith</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#101526;--panel:#1a2138;--line:#2b3555;--text:#e8ecf7;--muted:#8b95b5;--gold:#f0b429;--on:#3ddbb0;--bad:#ff6b6b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ink);color:var(--text);font-family:Outfit,system-ui,sans-serif;min-height:100vh}
+main{max-width:760px;margin:0 auto;padding:24px 16px 48px}
+h1,h2{margin:0 0 12px}h2{font-size:1.15rem}
+.logo{display:block;max-width:140px;margin:0 auto 20px;border-radius:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:14px}
+input,select{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--ink);color:var(--text);font:inherit}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--text);padding:12px 16px;border-radius:10px}
+button:hover{border-color:var(--gold)}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.primary{background:var(--gold);color:#101526;border-color:var(--gold);font-weight:700}
+.danger{border-color:var(--bad);color:var(--bad)}
+.big{display:block;width:100%;text-align:left;font-size:1.05rem;margin-bottom:10px}
+.row{display:flex;gap:8px;flex-wrap:wrap}.row>*{flex:1}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px}
+.stat b{display:block;font-size:2.4rem;line-height:1}.stat span{color:var(--muted);font-size:.9rem}
+.stat.elite b{color:var(--gold)}.stat.on b{color:var(--on)}
+.muted{color:var(--muted);font-size:.9rem}
+.bar{height:8px;border-radius:8px;background:var(--ink);overflow:hidden;margin:8px 0}.bar i{display:block;height:100%;background:var(--on)}
+.item{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.item:last-child{border:0}.item code{color:var(--muted);font-size:.8rem}
+.item button{flex:0;padding:8px 12px;white-space:nowrap}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--muted);margin-right:8px}.dot.ok{background:var(--on)}.dot.bad{background:var(--bad)}
+.hidden{display:none}#msg{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--panel);border:1px solid var(--gold);padding:10px 16px;border-radius:10px}
+.back{margin-bottom:14px}
+</style>
+</head>
+<body>
+<main>
+<img class="logo" src="logo.png" alt="Logo del servidor" onerror="this.style.display='none'">
+
+<section id="login" class="hidden">
+  <div class="card">
+    <h1>Panel de administradores</h1>
+    <p class="muted">Ingresa la contraseña para continuar.</p>
+    <input id="pass" type="password" placeholder="Contraseña" autocomplete="current-password">
+    <p></p><button class="primary" id="btnLogin" style="width:100%">Entrar</button>
+  </div>
+</section>
+
+<section id="menu" class="hidden">
+  <div class="stats">
+    <div class="card stat on"><b id="sOnline">–</b><span>Usuarios online ahora</span></div>
+    <div class="card stat elite"><b id="sPpm">–</b><span>PPM de Elite Four</span></div>
+  </div>
+  <button class="big" data-go="codes">Administrador de códigos</button>
+  <button class="big" data-go="server">Administrador del server</button>
+  <button id="btnLogout" class="danger">Cerrar sesión</button>
+</section>
+
+<section id="codes" class="hidden">
+  <button class="back" data-go="menu">Volver al menú</button>
+  <div class="card"><h2>Uso de Railway</h2><div id="railUsage" class="muted">Cargando…</div></div>
+  <div class="card"><h2>Uso de Upstash Redis</h2><div id="upUsage" class="muted">Cargando…</div></div>
+  <div class="card"><h2>Códigos</h2><div id="svcList"></div></div>
+</section>
+
+<section id="server" class="hidden">
+  <button class="back" data-go="menu">Volver al menú</button>
+  <div class="card">
+    <h2>Grupo</h2>
+    <div class="row" id="groupBtns"></div>
+  </div>
+  <div id="groupPanel" class="hidden">
+    <div class="card"><h2 id="gTitle"></h2><div id="onlineList"></div></div>
+    <div class="card">
+      <h2>Agregar ID</h2>
+      <input id="gid" inputmode="numeric" maxlength="16" placeholder="ID de 16 dígitos">
+      <p></p>
+      <div class="row">
+        <button class="primary" id="addOnline">Poner online</button>
+        <button id="addVip">Agregar a VIP</button>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+<div id="msg" class="hidden"></div>
+
+<script>
+const $ = s => document.querySelector(s)
+const GROUPS = { Elite_Four: "Elite Four", Gym_Leader: "Gym Leader", Trainer: "Trainer" }
+let group = null
+
+function toast(t){const m=$("#msg");m.textContent=t;m.classList.remove("hidden");setTimeout(()=>m.classList.add("hidden"),3000)}
+async function api(url, method = "GET", body) {
+  const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined })
+  const j = await r.json().catch(() => ({}))
+  if (r.status === 401 && url !== "/api/login") { show("login"); throw new Error("Sesión expirada") }
+  if (!r.ok) throw new Error(j.error || "Error")
+  return j
+}
+function show(id) {
+  ["login","menu","codes","server"].forEach(s => $("#"+s).classList.toggle("hidden", s !== id))
+  if (id === "menu") loadSummary()
+  if (id === "codes") loadCodes()
+  if (id === "server") { group = null; $("#groupPanel").classList.add("hidden") }
+}
+document.addEventListener("click", e => { const g = e.target.closest("[data-go]"); if (g) show(g.dataset.go) })
+
+// login
+async function login() {
+  try { await api("/api/login", "POST", { password: $("#pass").value }); $("#pass").value = ""; show("menu") }
+  catch (e) { toast(e.message) }
+}
+$("#btnLogin").onclick = login
+$("#pass").onkeydown = e => e.key === "Enter" && login()
+$("#btnLogout").onclick = async () => { await api("/api/logout", "POST"); show("login") }
+
+// menú
+async function loadSummary() {
+  try {
+    const s = await api("/api/summary")
+    $("#sOnline").textContent = s.online
+    $("#sPpm").textContent = s.ppm ?? "–"
+  } catch (e) { toast(e.message) }
+}
+
+// códigos
+const bar = pct => `<div class="bar"><i style="width:${Math.max(0, Math.min(100, pct))}%"></i></div>`
+async function loadCodes() {
+  api("/api/railway/usage").then(u => {
+    $("#railUsage").innerHTML = u.error
+      ? `No se pudo leer el crédito (${u.error}). Revísalo en railway.com/account/billing.`
+      : `Crédito restante: <b>${u.remainingUsageCreditBalance ?? u.creditBalance ?? "?"}</b> USD`
+  })
+  api("/api/upstash/usage").then(u => {
+    if (u.error || u.used == null) return $("#upUsage").textContent = "No se pudo leer el uso: " + (u.error || "respuesta sin datos")
+    const pct = (u.left / u.limit) * 100
+    $("#upUsage").innerHTML = `Comandos restantes este mes: <b>${u.left.toLocaleString()}</b> de ${u.limit.toLocaleString()}${bar(pct)}${pct < 20 ? '<span style="color:var(--bad)">Te queda poco: considera cambiar de plan o de servidor.</span>' : ""}`
+  })
+  try {
+    const list = await api("/api/railway/services")
+    $("#svcList").innerHTML = list.map(s => `
+      <div class="item" data-id="${s.serviceId}">
+        <div><span class="dot ${s.status === "SUCCESS" ? "ok" : /FAIL|CRASH/.test(s.status) ? "bad" : ""}"></span>${s.name}<br><code>${s.status}</code></div>
+        <div class="row" style="flex:0"><button data-act="restart">Restart</button><button class="danger" data-act="redeploy">Redeploy</button></div>
+      </div>`).join("")
+  } catch (e) { $("#svcList").textContent = e.message }
+}
+$("#svcList").onclick = async e => {
+  const b = e.target.closest("[data-act]"); if (!b) return
+  const id = b.closest(".item").dataset.id, act = b.dataset.act
+  if (!confirm(`¿${act === "restart" ? "Reiniciar" : "Redesplegar"} este código?`)) return
+  try { await api(`/api/railway/${id}/${act}`, "POST"); toast(act === "restart" ? "Reinicio enviado" : "Redeploy enviado"); setTimeout(loadCodes, 4000) }
+  catch (err) { toast(err.message) }
+}
+
+// server
+$("#groupBtns").innerHTML = Object.entries(GROUPS).map(([k, v]) => `<button data-g="${k}">${v}</button>`).join("")
+$("#groupBtns").onclick = e => { const b = e.target.closest("[data-g]"); if (b) openGroup(b.dataset.g) }
+async function openGroup(g) {
+  group = g
+  $("#gTitle").textContent = `Online en ${GROUPS[g]}`
+  $("#groupPanel").classList.remove("hidden")
+  try {
+    const list = await api(`/api/group/${g}/online`)
+    $("#onlineList").innerHTML = list.length ? list.map(u => `
+      <div class="item"><div>${u.label}<br><code>${u.id}</code></div>
+      <button class="danger" data-off="${u.id}">Poner offline</button></div>`).join("")
+      : '<p class="muted">Nadie online en este grupo. Agrega un ID abajo.</p>'
+  } catch (e) { toast(e.message) }
+}
+$("#onlineList").onclick = async e => {
+  const b = e.target.closest("[data-off]"); if (!b) return
+  try { await api(`/api/group/${group}/offline`, "POST", { id: b.dataset.off }); toast("Puesto offline"); openGroup(group) }
+  catch (err) { toast(err.message) }
+}
+async function groupAction(act, okMsg) {
+  try { await api(`/api/group/${group}/${act}`, "POST", { id: $("#gid").value }); toast(okMsg); $("#gid").value = ""; openGroup(group) }
+  catch (e) { toast(e.message) }
+}
+$("#addOnline").onclick = () => groupAction("online", "ID puesto online")
+$("#addVip").onclick = () => groupAction("vip", "ID agregado a VIP")
+
+// inicio
+api("/api/me").then(() => show("menu")).catch(() => show("login"))
+</script>
+</body>
+</html>
